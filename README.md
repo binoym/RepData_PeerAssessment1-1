@@ -59,7 +59,7 @@ will be able to read the code. **This assignment will be evaluated via
 peer assessment so it is essential that your peer evaluators be able
 to review the code for your analysis**.
 
-For the plotting aspects of this assignment, feel free to use any
+For the plotting aspects of this assignment, feel free to use any 
 plotting system in R (i.e., base, lattice, ggplot2)
 
 Fork/clone the [GitHub repository created for this
