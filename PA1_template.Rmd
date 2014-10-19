@@ -7,19 +7,206 @@ output:
 
 
 ## Loading and preprocessing the data
+if (!file.exists("activity.zip")) {
+
+    fileurl = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+    download.file(fileurl, destfile = "activity.zip")
+    unzip("activity.zip")
+
+}
+
+activityraw <- read.csv("activity.csv", colClasses = rep("character", 3))
+## The packages I am using are
+
+    library("stringr")
+    library("lubridate")
+    library("reshape2")
+    library("ggplot2")
+    library("scales")
+##  pad the interval string to 4 characters with leading zeros and
+##  add a column that combines date and interval values to a POSIXct variable
+
+    activityraw$interval <- str_pad(activityraw$interval, width = 4, pad = "0") 
+    activityraw$iposixct <- paste(activityraw$date, activityraw$interval)          
+    activityraw$iposixct <- parse_date_time(activityraw$iposixct, "ymd HM")    
+
+    activityraw$steps <- as.numeric(activityraw$steps)
+    activityraw$date <- as.Date (activityraw$date) 
+
+    activity <- activityraw[complete.cases(activityraw),]  ## rm NAs
 
 
 
 ## What is mean total number of steps taken per day?
+##  Recast the data by days and calculate sum for each day
 
+    actmelt <- melt(activity, id.vars = "date", measure.vars="steps" ) 
+    actcast <- dcast(actmelt, date ~ variable, fun.aggregate = sum)
+
+## create the histogram
+    par(bg = "#F4F4F7")
+
+    hist(actcast$steps, main = "Plot 1: Frequency of Total Steps/Day",
+         xlab = "Steps Per Day", breaks = 40, col = "gray",
+         ylab= "Frequency (per 2 month period)")
+meancast <- dcast(actmelt, date ~ variable, fun.aggregate = mean)
+
+    mediancast <- dcast(actmelt, date ~ variable, fun.aggregate = median)
+summary(mediancast$steps)   ### they are all zero, each and every day
+summary(meancast$steps)
+meancast$steps  ## prints a vector of daily means, in chronological order
+ mean(actcast$steps) ; median(actcast$steps) ## median & mean of daily totals
 
 
 ## What is the average daily activity pattern?
+## recast the data by 5 min. interval, then calculate mean for each interval
+
+        stepmelt <- melt(activity, id.vars = c("date", "interval"), 
+                         measure.vars= "steps" )
+
+        stepcast <- dcast(stepmelt, interval ~ variable, fun.aggregate = mean)
 
 
+###     add a column with POSIXct interval for X axis then plot.
+
+        stepcast$intervalct <- parse_date_time (stepcast$interval, "HM")
+
+        par(bg = "#F4F4F7")
+
+        plot(x = stepcast$intervalct, y = stepcast$steps, type="l",  
+             ylab = "Mean Steps per Interval", 
+             xlab = "Time of Day (288 intervals/day)",
+             main = "Plot 2: Average Steps per 5 Minute Interval"
+             )
+###     determine the maximum average interval
+
+        stepmax <- stepcast[(max(stepcast$steps)==stepcast$steps),]
+
+        stepmax
 
 ## Imputing missing values
+##  get count of NAs, % of NAs
 
+    sum(!complete.cases(activityraw)); mean(is.na(activityraw$steps))
+##  get number of days with and without NAs
+
+    length(unique(activityraw$date)); length(unique(activity$date))
+##  segregate good and bad data
+
+    actbad <- activityraw[!complete.cases(activityraw),]  ## df of NAs
+
+    datelist <- unique(activity$date)  ## unique non-NA dates, 10/02 - 11/29
+
+##  create a uniformly distributed vector of good dates with
+##  length equal to the rows of NA data (actbad) and
+##  a vector of intervals extracted from the NA data frame.
+##  Both of these vectors will have length of 2304.
+
+    set.seed(42)
+
+    rdate <- datelist[round(runif(n = nrow(actbad), min = 0.5, 
+                        max = (length(datelist + 0.5))))]   
+
+    intbad <- actbad[,"interval"]  ## for convenience & legibility only
+
+##  verify good distribution of dates
+
+    summary(rdate)
+##  replace the NAs steps in actbad with selected values from activity
+
+    for(i in seq_along(rdate)) {
+
+            actbad[i, "steps"] <- 
+                    activity[ (rdate[i] == activity$date) & 
+                              (intbad[i] == activity$interval),
+                              "steps"]
+
+    }
+
+## combine data to make the new dataset (Question 3 in this section)
+
+    newact <- rbind(activity, actbad)
+
+    newact <- newact[order(newact$iposixct),]   ## ordered by date & time
+## prep histogram
+
+    newmelt <- melt(newact, id.vars = "date", measure.vars= "steps" )
+
+    newcast <- dcast(newmelt, date ~ variable, fun.aggregate = sum)
+
+    par(bg = "#F4F4F7")
+
+    hist(newcast$steps, main = "Plot 3: Daily Total Steps after NAs Replaced",
+         xlab = "Steps per day", breaks = 40, col = "gray",
+         ylab= "Frequency (days in 2 Month period)")
+### examining changes in mean, median and totals steps after NAs replaced
+
+    mean(newcast$steps) ; median(newcast$steps)
+ (mean(newcast$steps) - mean(actcast$steps))/mean(actcast$steps)
+ (median(newcast$steps) - median(actcast$steps))/median(actcast$steps)
+ sum(newact$steps) ; sum(activity$steps)
+## examine the replacement set summary stats for steps per interval    
+
+    OriginalSteps <- summary(activity$steps)
+    ImputedSteps <- summary(newact$steps)
+    NetChangeSteps <- OriginalSteps - ImputedSteps
+    rbind(ImputedSteps, OriginalSteps, NetChangeSteps)
+##  Generate a table comparing daily totals
+##  before and after imputing data to NAs
+
+    OriginalSet <- summary(actcast$steps, digits=5)
+    ImputedSet <- summary(newcast$steps, digits=5)
+    NetChanges <- ImputedSet - OriginalSet
+    rbind(ImputedSet, OriginalSet, NetChanges)
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+## part 1: building a two level factor per #1 using wday() function which
+## returns a day of week number and a character vector to set 'weekday' for
+## 2:5 and 'weekend' for 1,7 - and then bind to df as factor.
+
+weeker <- c("weekend", rep("weekday", 5), "weekend")
+
+newact$dayo <- as.factor(weeker[wday(newact$date)])
+## Prepare the panel plot per Question 2 in this section
+
+## recast the data by 5 min. interval, then calculate mean for each interval
+
+        daymelt <- melt(newact, id.vars = c("dayo", "interval"), 
+                         measure.vars= "steps")
+
+        daycast <- dcast(daymelt, dayo + interval ~ variable, 
+                         fun.aggregate = mean)
+
+##     add a column with POSIXct interval for X axis and then plot.
+
+        daycast$intervalct <- parse_date_time (daycast$interval, "HM")
+
+        x = ggplot(daycast, aes(x = intervalct, y = steps))
+        x = x + geom_line() + facet_grid(dayo~.)
+        x = x + labs(x = "Time of Day", 
+                     y = "Steps per 5 Minute Interval" )
+        x = x + ggtitle("Plot 4: Mean Steps per Interval ~ Weekdays vs. Weekends")
+        x = x + scale_x_datetime(labels = date_format("%H:%M"))
+        print(x)
+## Prepare the panel plot for maximum values weekday and weekend intervals
+
+## recast the data by 5 min. interval, then calculate max for each interval
+
+    maxcast <- dcast(daymelt, dayo + interval ~ variable, 
+                         fun.aggregate = max, "")  ## needed dummy arg
+
+    maxcast$steps <- as.numeric(maxcast$steps) ## dcast made it "character"
+
+## add a column with POSIXct interval for X axis and then plot.
+
+    maxcast$intervalct <- parse_date_time (maxcast$interval, "HM")
+
+    x = ggplot(maxcast, aes(x = intervalct, y = steps))
+    x = x + geom_line() + facet_grid(dayo~.)
+    x = x + labs(x = "Time of Day", 
+                 y = "Steps per 5 Minute Interval" )
+    x = x + ggtitle("Plot A: Maximum Steps per Interval ~ Weekdays vs. Weekends")
+    x = x + scale_x_datetime(labels = date_format("%H:%M"))
+    print(x)
+sessionInfo()
